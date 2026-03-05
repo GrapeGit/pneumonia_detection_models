@@ -3,6 +3,9 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
+from sklearn.utils.class_weight import compute_class_weight
+from sklearn.metrics import confusion_matrix, classification_report
+
 
 # Config
 IMAGE_SHAPE = (64, 64, 3)
@@ -13,6 +16,7 @@ SAVE_PATH = "cnn_section2_best.keras"
 EPOCHS = 20
 BATCH_SIZE = 32
 SEED = 0
+AUTOTUNE = tf.data.AUTOTUNE
 
 
 # Reproducibility
@@ -41,82 +45,100 @@ def load_local_data():
 def get_split(all_data, metadata, split_name: str):
     sub = metadata[metadata["split"] == split_name]
     if sub.empty:
-        raise ValueError(f"No rows found for split='{split_name}'")
+        return None, None
 
     X = all_data[sub["index"].values]
     y = sub["class"].values.astype("float32").reshape(-1, 1)
     return X, y
 
 
-#
+def make_ds(X, y, training: bool):
+    ds = tf.data.Dataset.from_tensor_slices((X, y))
+    if training:
+        ds = ds.shuffle(min(len(X), 5000), seed=SEED, reshuffle_each_iteration=True)
+    ds = ds.batch(BATCH_SIZE).cache().prefetch(AUTOTUNE)
+    return ds
+
 # Model
  
 def build_cnn():
-    # A solid “starter CNN” that generalizes reasonably well
     reg = tf.keras.regularizers.l2(1e-4)
 
-    model = tf.keras.models.Sequential([
-        tf.keras.layers.Input(shape=IMAGE_SHAPE),
+    augment = tf.keras.models.Sequential([
+        tf.keras.layers.RandomFlip("horizontal"),
+        tf.keras.layers.RandomRotation(0.10),
+        tf.keras.layers.RandomZoom(0.10),
+        tf.keras.layers.RandomContrast(0.10),
+    ], name="augmentation")
+    
+    inputs = tf.keras.layers.Input(shape=IMAGE_SHAPE)
 
-        tf.keras.layers.Conv2D(32, 3, padding="same", activation="relu", kernel_regularizer=reg),
-        tf.keras.layers.MaxPooling2D(2),
 
-        tf.keras.layers.Conv2D(64, 3, padding="same", activation="relu", kernel_regularizer=reg),
-        tf.keras.layers.MaxPooling2D(2),
+    x = augment(inputs)
 
-        tf.keras.layers.Conv2D(128, 3, padding="same", activation="relu", kernel_regularizer=reg),
-        tf.keras.layers.MaxPooling2D(2),
+    # Slightly stronger CNN than your starter version: add BatchNorm
+    x = tf.keras.layers.Conv2D(32, 3, padding="same", use_bias=False, kernel_regularizer=reg)(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.MaxPooling2D(2)(x)
 
-        # IMPORTANT: GAP tends to overfit less than Flatten
-        tf.keras.layers.GlobalAveragePooling2D(),
-        tf.keras.layers.Dropout(0.4),
-        tf.keras.layers.Dense(1, activation="sigmoid"),
-    ])
+    x = tf.keras.layers.Conv2D(64, 3, padding="same", use_bias=False, kernel_regularizer=reg)(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.MaxPooling2D(2)(x)
+
+    x = tf.keras.layers.Conv2D(128, 3, padding="same", use_bias=False, kernel_regularizer=reg)(x)
+    x = tf.keras.layers.BatchNormalization()(x)
+    x = tf.keras.layers.Activation("relu")(x)
+    x = tf.keras.layers.MaxPooling2D(2)(x)
+
+    x = tf.keras.layers.GlobalAveragePooling2D()(x)
+    x = tf.keras.layers.Dropout(0.4)(x)
+    outputs = tf.keras.layers.Dense(1, activation="sigmoid")(x)
+
+    model = tf.keras.Model(inputs, outputs)
 
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=3e-4),
         loss="binary_crossentropy",
-        metrics=[tf.keras.metrics.BinaryAccuracy(name="accuracy")],
+        metrics=[
+            tf.keras.metrics.BinaryAccuracy(name="accuracy"),
+            tf.keras.metrics.AUC(name="auc"),
+            tf.keras.metrics.Precision(name="precision"),
+            tf.keras.metrics.Recall(name="recall"),
+         
+         ],
     )
     return model
 
+def get_class_weights(y_train):
+    y_int = y_train.reshape(-1).astype(int)
+    classes = np.array([0, 1], dtype=int)
+    weights = compute_class_weight(class_weight="balanced", classes=classes, y=y_int)
+    return {0: float(weights[0]), 1: float(weights[1])}
 
- 
+
 # Train / Eval
- 
-def train_model(model, X_train, y_train, X_val, y_val, save_path: str):
-    cb = [
-        tf.keras.callbacks.EarlyStopping(
-            monitor="val_accuracy",
-            patience=3,
-            restore_best_weights=True,
-        ),
-        tf.keras.callbacks.ModelCheckpoint(
-            save_path,
-            monitor="val_accuracy",
-            save_best_only=True,
-        ),
-    ]
-
-    history = model.fit(
-        X_train, y_train,
-        validation_data=(X_val, y_val),
-        epochs=EPOCHS,
-        batch_size=BATCH_SIZE,
-        shuffle=True,
-        callbacks=cb,
-        verbose=2,
-    )
-    return history
-
 
 def summarize_history(history):
-    val_acc = history.history.get("val_accuracy", [])
-    if not val_acc:
+    val_auc = history.history.get("val_auc", [])
+    if not val_auc:
         return None, None
-    best_epoch = int(np.argmax(val_acc) + 1)
-    best_val = float(np.max(val_acc))
+    best_epoch = int(np.argmax(val_auc) + 1)
+    best_val = float(np.max(val_auc))
     return best_epoch, best_val
+
+def evaluate_and_report(model, X, y, name="set"):
+    probs = model.predict(X, verbose=0).reshape(-1)
+    preds = (probs >= 0.5).astype(int)
+    y_true = y.reshape(-1).astype(int)
+
+    cm = confusion_matrix(y_true, preds)
+    print(f"\n=== {name.upper()} CONFUSION MATRIX ===\n{cm}")
+    print(f"\n=== {name.upper()} REPORT ===")
+    print(classification_report(y_true, preds, digits=3))
+
+
 
 
 def debug_predictions(model, X, y, name="set", n=400):
@@ -136,7 +158,6 @@ def debug_predictions(model, X, y, name="set", n=400):
  
 def main():
 
-
     set_seeds(SEED)
 
     all_data, metadata = load_local_data()
@@ -144,6 +165,11 @@ def main():
 
     X_train_full, y_train_full = get_split(all_data, metadata, "train")
     X_test, y_test = get_split(all_data, metadata, "test")
+    X_field, y_field = get_split(all_data, metadata, "field")  # may be None
+
+    if X_train_full is None or X_test is None:
+        raise ValueError("Your metadata.csv must include at least train and test splits.")
+
 
     print(f"Train(full): {X_train_full.shape} | Test: {X_test.shape}")
     print("Train labels (mean):", float(y_train_full.mean()), "| Test labels (mean):", float(y_test.mean()))
@@ -157,19 +183,65 @@ def main():
             stratify=y_train_full,
     )
 
+    train_ds = make_ds(X_train, y_train, training=True)
+    val_ds = make_ds(X_val, y_val, training=False)
+
+    class_weights = get_class_weights(y_train)
+    print("Class weights:", class_weights)
+
+
     model = build_cnn()
-    history = train_model(model, X_train, y_train, X_val, y_val, save_path=SAVE_PATH)
+
+    callbacks = [
+        tf.keras.callbacks.EarlyStopping(
+            monitor="val_auc",
+            patience=5,
+            mode="max",
+            restore_best_weights=True,
+        ),
+        tf.keras.callbacks.ModelCheckpoint(
+            SAVE_PATH,
+            monitor="val_auc",
+            mode="max",
+            save_best_only=True,
+        ),
+        tf.keras.callbacks.ReduceLROnPlateau(
+            monitor="val_auc",
+            mode="max",
+            factor=0.5,
+            patience=2,
+            min_lr=1e-6,
+            verbose=1,
+        ),
+    ]
+
+    history = model.fit(
+        train_ds,
+        validation_data=val_ds,
+        epochs=EPOCHS,
+        callbacks=callbacks,
+        class_weight=class_weights,
+        verbose=2,
+    )
 
     best_epoch, best_val = summarize_history(history)
     if best_epoch is not None:
-        print(f"Best epoch: {best_epoch} | Best val_accuracy: {best_val:.3f}")
+        print(f"Best epoch: {best_epoch} | Best val_auc: {best_val:.3f}")
 
     # Evaluate best saved model on the REAL test set
     best_model = tf.keras.models.load_model(SAVE_PATH)
-    test_loss, test_acc = best_model.evaluate(X_test, y_test, verbose=0)
-    print(f"Final test accuracy: {float(test_acc):.3f}")
-    print(f"Saved best model to: {SAVE_PATH}")
+    test_metrics = best_model.evaluate(X_test, y_test, verbose=0)
+    evaluate_and_report(best_model, X_test, y_test, name="test")
 
+    if X_field is not None:
+        print("\n--- FINAL EVAL: FIELD (Section 3 idea) ---")
+        field_metrics = best_model.evaluate(X_field, y_field, verbose=0)
+        print(dict(zip(best_model.metrics_names, [float(x) for x in field_metrics])))
+        evaluate_and_report(best_model, X_field, y_field, name="field")
+    else:
+        print("\n(no field split found in metadata.csv — skipping field evaluation)")
+
+    print(f"\nSaved best model to: {SAVE_PATH}")
 
 if __name__ == "__main__":
     main()
