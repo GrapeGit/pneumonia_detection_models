@@ -76,7 +76,7 @@ def build_cnn():
 
     x = augment(inputs)
 
-    # Slightly stronger CNN than your starter version: add BatchNorm
+    # add BatchNorm
     x = tf.keras.layers.Conv2D(32, 3, padding="same", use_bias=False, kernel_regularizer=reg)(x)
     x = tf.keras.layers.BatchNormalization()(x)
     x = tf.keras.layers.Activation("relu")(x)
@@ -142,7 +142,7 @@ def evaluate_and_report(model, X, y, name="set"):
 
 
 def debug_predictions(model, X, y, name="set", n=400):
-    # Small sanity check: are we predicting all one class?
+    # Small sanity check: are we predicting all one class
     n = min(n, len(X))
     probs = model.predict(X[:n], verbose=0).reshape(-1)
     preds = (probs >= 0.5).astype(int)
@@ -197,8 +197,7 @@ def main():
             monitor="val_auc",
             patience=5,
             mode="max",
-            restore_best_weights=True,
-        ),
+            restore_best_weights=True,),
         tf.keras.callbacks.ModelCheckpoint(
             SAVE_PATH,
             monitor="val_auc",
@@ -234,7 +233,7 @@ def main():
     evaluate_and_report(best_model, X_test, y_test, name="test")
 
     if X_field is not None:
-        print("\n--- FINAL EVAL: FIELD (Section 3 idea) ---")
+        print("\nFINAL EVAL: FIELD")
         field_metrics = best_model.evaluate(X_field, y_field, verbose=0)
         print(dict(zip(best_model.metrics_names, [float(x) for x in field_metrics])))
         evaluate_and_report(best_model, X_field, y_field, name="field")
