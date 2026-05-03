@@ -6,7 +6,7 @@ from PIL import Image
 
 MODEL_PATH = "cnn_section2_best.keras"
 IMAGE_SIZE = (64, 64)
-THRESHOLD = 0.5
+THRESHOLD = 0.95
 
 
 @st.cache_resource
