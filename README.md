@@ -10,6 +10,7 @@ Built this project wayyyy back when to learn more about convolutional neural net
 - `baseline.py` — early draft script used to test simple baseline models before the CNN. 
 - `metadata.csv` — contains image labels, dataset split names, and image indices. Feel free to use !
 - `image_data.npy` — NumPy array containing the image data. Also feel free to use!
+- `gradcam.py` — visualize which parts of the uploaded X-ray influenced the CNN prediction.
 - `app.py` — Streamlit app for uploading an image and getting a prediction
 
 ## Model Overview
@@ -31,6 +32,12 @@ The model includes:
 - Sigmoid output for binary classification
 
 The model outputs a probability between `0` and `1`, where higher values indicate a higher predicted likelihood of pneumonia.
+
+## Grad-CAM Heatmap
+
+Recently added a Grad-CAM heatmap to help visualize which parts of the uploaded X-ray influenced the CNN prediction. 
+
+Brighter or redder areas indicate regions that contributed more strongly to the model's pneumonia prediction. The heatmap is included as an interpretability aid only.
 
 ## Decision Threshold
 
@@ -146,14 +153,6 @@ The app will open in your browser. You can upload a chest X-ray image, and the a
 - The uploaded image
 - The predicted diagnosis
 - The pneumonia probability
-
-## Streamlit App Usage
-
-After running:
-
-```bash
-streamlit run app.py
-```
 
 Upload a `.png`, `.jpg`, or `.jpeg` image.
 
