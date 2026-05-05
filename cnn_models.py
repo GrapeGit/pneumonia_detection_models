@@ -249,9 +249,6 @@ def main():
     train_ds = make_ds(X_train, y_train, training=True)
     val_ds = make_ds(X_val, y_val, training=False)
 
-    #class_weights = get_class_weights(y_train)
-    #print("Class weights:", class_weights)
-
 
     model = build_cnn()
 

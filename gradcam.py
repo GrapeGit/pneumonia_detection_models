@@ -12,15 +12,11 @@ def find_last_conv_layer(model: tf.keras.Model) -> str:
     raise ValueError("No Conv2D layer found in the model.")
 
 
-def make_gradcam_heatmap(
-    model: tf.keras.Model,
-    image_array: np.ndarray,
-    last_conv_layer_name: str | None = None,
-) -> np.ndarray:
-    """
-    Generate a Grad-CAM heatmap for one preprocessed image.
+def make_gradcam_heatmap( model: tf.keras.Model, image_array: np.ndarray, last_conv_layer_name: str | None = None):
 
-    """
+    """Generate a Grad-CAM heatmap for one preprocessed image."""
+
+
     if last_conv_layer_name is None:
         last_conv_layer_name = find_last_conv_layer(model)
 
@@ -55,15 +51,13 @@ def make_gradcam_heatmap(
 
 
 def overlay_heatmap(
-    original_image: Image.Image,
-    heatmap: np.ndarray,
-    alpha: float = 0.4,
-) -> Image.Image:
+    original_image: Image.Image, heatmap: np.ndarray, alpha: float = 0.4, ):
     """
     Overlay a red Grad-CAM heatmap on the original image.
     """
+
     original_image = original_image.convert("RGB")
-    original_size = original_image.size
+    original_size  = original_image.size
 
     heatmap_img = Image.fromarray(np.uint8(255 * heatmap))
     heatmap_img = heatmap_img.resize(original_size)
