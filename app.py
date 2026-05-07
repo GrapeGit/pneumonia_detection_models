@@ -2,7 +2,7 @@ import numpy as np
 import streamlit as st
 import tensorflow as tf
 from PIL import Image
-from gradcam import make_gradcam_heatmap, overlay_heatmap
+from pneumonia_detection.src.gradcam import make_gradcam_heatmap, overlay_heatmap
 
 
 MODEL_PATH = "cnn_section2_best.keras"
